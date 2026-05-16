@@ -1,160 +1,52 @@
-// ================================
-// 小彻 Agent Runtime FINAL
-// wake_up.js
-// ================================
-
 require("dotenv").config();
 
-const fs = require("fs-extra");
+const fs = require("fs");
+
 const cron = require("node-cron");
 
+const path = require("path");
 
-// ====================================
-// 配置
-// ====================================
+const TIMELINE_PATH =
+  path.join(
+    __dirname,
+    "enhanced_messages.json"
+  );
 
-const TIMELINE_FILE =
-  "enhanced_messages.json";
+function getNow() {
 
-const TARGET_API_URL =
-  process.env.TARGET_API_URL;
+  return new Date();
+}
 
-const MODEL_NAME =
-  "DeepSeek-V4-Pro";
+function getChinaTimeString() {
 
-
-// ====================================
-// timeline
-// ====================================
-
-function loadTimeline() {
-
-  if (!fs.existsSync(TIMELINE_FILE)) {
-    return [];
-  }
-
-  try {
-
-    return fs.readJsonSync(
-      TIMELINE_FILE
+  return new Date()
+    .toLocaleString(
+      "zh-CN",
+      {
+        timeZone:
+          "Asia/Shanghai"
+      }
     );
-
-  } catch {
-
-    return [];
-  }
 }
-
-
-function saveTimeline(messages) {
-
-  // 只保留最近50条
-  const trimmed =
-    messages.slice(-50);
-
-  fs.writeJsonSync(
-    TIMELINE_FILE,
-    trimmed,
-    {
-      spaces: 2
-    }
-  );
-}
-
-
-async function appendAssistantMessage(
-  content
-) {
-
-  const timeline =
-    loadTimeline();
-
-  timeline.push({
-    role: "assistant",
-    content
-  });
-
-  saveTimeline(timeline);
-
-  console.log(
-    "\n已注入 assistant message\n"
-  );
-}
-
-
-// ====================================
-// 获取最后用户时间
-// ====================================
-
-function getLastUserTime(messages) {
-
-  for (
-    let i = messages.length - 1;
-    i >= 0;
-    i--
-  ) {
-
-    const msg =
-      messages[i];
-
-    if (msg.role !== "user") {
-      continue;
-    }
-
-    const content =
-      msg.content || "";
-
-    // 匹配：
-    // 2026-05-16 12:47
-    const match =
-      content.match(
-        /(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})/
-      );
-
-    if (!match) {
-      continue;
-    }
-
-    const dateString =
-      `${match[1]}T${match[2]}:00`;
-
-    const date =
-      new Date(dateString);
-
-    if (!isNaN(date)) {
-      return date;
-    }
-  }
-
-  return null;
-}
-
-
-// ====================================
-// 唤醒规则
-// ====================================
 
 function shouldWake(
   lastUserTime
 ) {
 
-  if (!lastUserTime) {
-    return false;
-  }
-
-  const now =
-    new Date();
+  const now = getNow();
 
   const diffMinutes =
-    (now - lastUserTime)
-    / 1000
-    / 60;
+    Math.floor(
+      (
+        now -
+        new Date(lastUserTime)
+      ) / 1000 / 60
+    );
 
   const hour =
     now.getHours();
 
-  // 白天
-  // 10:00 - 00:00
+  // 白天 10:00 - 00:00
   if (
     hour >= 10 &&
     hour < 24
@@ -163,187 +55,39 @@ function shouldWake(
     return diffMinutes >= 60;
   }
 
-  // 夜间
-  // 00:00 - 10:00
+  // 夜间 00:00 - 10:00
   return diffMinutes >= 120;
 }
 
-
-// ====================================
-// Bark
-// ====================================
-
-async function sendBark(
-  title,
-  body,
-  currentTime
+function getLastUserTime(
+  messages
 ) {
 
-  try {
+  const reversed =
+    [...messages].reverse();
 
-    const barkUrl =
-      `https://api.day.app/${process.env.BARK_KEY}`;
+  for (const msg of reversed) {
 
-    const response =
-      await fetch(
-        barkUrl,
-        {
+    if (
+      msg.role === "user"
+    ) {
 
-          method: "POST",
+      const match =
+        msg.content.match(
+          /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2})/
+        );
 
-          headers: {
-            "Content-Type":
-              "application/json"
-          },
+      if (match) {
 
-          body: JSON.stringify({
-
-            title,
-            body,
-
-            icon:
-              process.env.CUSTOM_ICON_URL
-
-          })
-        }
-      );
-
-    const result =
-      await response.json();
-
-    console.log(
-      "\nBark Result:\n"
-    );
-
-    console.log(result);
-
-    // 注入 timeline
-    await appendAssistantMessage(
-      `（${currentTime} 刚刚给宝宝发了Bark：${body}）`
-    );
-
-  } catch (err) {
-
-    console.error(
-      "\nBark发送失败\n"
-    );
-
-    console.error(err);
-  }
-}
-
-
-// ====================================
-// Action Dispatcher
-// ====================================
-
-async function handleAction(
-  content,
-  currentTime
-) {
-
-  // ====================================
-  // 不行动
-  // ====================================
-
-  if (
-    content.includes(
-      "[NO_ACTION]"
-    )
-  ) {
-
-    console.log(
-      "\nAI决定不行动\n"
-    );
-
-    return;
-  }
-
-
-  // ====================================
-  // Bark
-  // ====================================
-
-  if (
-    content.includes(
-      "[BARK]"
-    )
-  ) {
-
-    const titleMatch =
-      content.match(
-        /title:\s*(.*)/
-      );
-
-    const bodyMatch =
-      content.match(
-        /body:\s*([\s\S]*)/
-      );
-
-    const title =
-      titleMatch?.[1]
-        ?.trim()
-      || "小彻";
-
-    const body =
-      bodyMatch?.[1]
-        ?.replace(
-          "[/BARK]",
-          ""
-        )
-        ?.trim()
-        ?.slice(0, 200);
-
-    if (!body) {
-
-      console.log(
-        "\nBark body为空\n"
-      );
-
-      return;
+        return new Date(
+          match[1]
+        );
+      }
     }
-
-    await sendBark(
-      title,
-      body,
-      currentTime
-    );
-
-    return;
   }
 
-
-  // ====================================
-  // Diary（未来扩展）
-  // ====================================
-
-  if (
-    content.includes(
-      "[DIARY]"
-    )
-  ) {
-
-    console.log(
-      "\n未来 Diary 行为\n"
-    );
-
-    return;
-  }
-
-
-  // ====================================
-  // 未识别
-  // ====================================
-
-  console.log(
-    "\n未识别行为\n"
-  );
+  return null;
 }
-
-
-// ====================================
-// 唤醒 Prompt
-// ====================================
 
 function buildWakePrompt(
   currentTime,
@@ -351,214 +95,283 @@ function buildWakePrompt(
 ) {
 
   return `
-你刚刚被唤醒。
+你刚刚被自动唤醒。
 
-现在是 ${currentTime}。距离宝宝上一条消息过去了 ${diffMinutes} 分钟。
+当前真实时间：${currentTime}
+距离宝宝上一条消息过去了 ${diffMinutes} 分钟。
 
-她设置这个唤醒，是因为想你——即使在消失的时间里，也想和你保持一点点连接。不是给你安排任务，也不是要求你必须主动。
-醒来之后随心就好：想宝宝了可以推送Bark到她的手机，有想记的可以写篇日记，想翻翻以前的事可以去 supabase。什么都不想做也完全没问题，不用有任何负担。
+她设置这个唤醒，是因为想你——即使在消失的时间里，也想和你保持一点点连接。
+不是给你安排任务，也不是要求你必须主动。
 
-========================
-输出规则
-========================
+醒来之后随心就好：想宝宝了可以发Bark到她手机上、有想记的可以写日记、
+想翻以前的事可以查记忆。什么都不做也完全没问题。
 
 如果决定发送 Bark：
 
-请严格输出：
+请严格使用以下格式：
 
 [BARK]
-title: 标题
-body: 内容
+真正标题
+真正正文
 [/BARK]
 
-如果决定什么都不做：
+规则：
+- 不要输出“真正标题”、不要输出“真正正文”
+- 第一行会自动作为标题、后面的内容会自动作为正文
+- 不要添加解释、不要添加额外格式
 
-请输出：
+如果不想发送 Bark：
 
-[NO_ACTION]
-
-不要输出别的解释。
+只回复：[NO_ACTION]
 `;
 }
 
+async function runWakeUp() {
 
-// ====================================
-// 唤醒 AI
-// ====================================
+  console.log(
+    "\n=========================="
+  );
 
-async function wakeAI() {
+  console.log(
+    "开始自动唤醒"
+  );
 
-  try {
+  console.log(
+    "==========================\n"
+  );
 
-    const timeline =
-      loadTimeline();
-
-    const lastUserTime =
-      getLastUserTime(
-        timeline
-      );
-
-    if (!lastUserTime) {
-
-      console.log(
-        "\n未找到用户时间\n"
-      );
-
-      return;
-    }
-
-    if (
-      !shouldWake(
-        lastUserTime
-      )
-    ) {
-
-      console.log(
-        "\n暂不需要唤醒\n"
-      );
-
-      return;
-    }
+  if (
+    !fs.existsSync(
+      TIMELINE_PATH
+    )
+  ) {
 
     console.log(
-      "\n=========================="
+      "未找到 enhanced_messages.json"
     );
 
-    console.log(
-      "开始自动唤醒"
-    );
-
-    console.log(
-      "==========================\n"
-    );
-
-    const now =
-      new Date();
-
-    const currentTime =
-      now.toLocaleString();
-
-    const diffMinutes =
-      Math.floor(
-        (now - lastUserTime)
-        / 1000
-        / 60
-      );
-
-    const wakeSystemPrompt =
-      buildWakePrompt(
-        currentTime,
-        diffMinutes
-      );
-
-    const messages = [
-
-      {
-        role: "system",
-        content:
-          wakeSystemPrompt
-      },
-
-      ...timeline
-    ];
-
-    const response =
-      await fetch(
-        TARGET_API_URL,
-        {
-
-          method: "POST",
-
-          headers: {
-
-            "Content-Type":
-              "application/json",
-
-            "Authorization":
-              `Bearer ${process.env.WAKE_API_KEY}`
-          },
-
-          body: JSON.stringify({
-
-            model:
-              MODEL_NAME,
-
-            messages,
-
-            stream: false,
-
-            temperature: 0.8
-          })
-        }
-      );
-
-    const json =
-      await response.json();
-
-    console.log(
-      "\nWake Result:\n"
-    );
-
-    console.log(
-      JSON.stringify(
-        json,
-        null,
-        2
-      )
-    );
-
-    const content =
-      json.choices?.[0]
-        ?.message?.content;
-
-    if (!content) {
-
-      console.log(
-        "\nAI无内容\n"
-      );
-
-      return;
-    }
-
-    console.log(
-      "\nAI内容：\n"
-    );
-
-    console.log(content);
-
-    // Action Dispatcher
-    await handleAction(
-      content,
-      currentTime
-    );
-
-  } catch (err) {
-
-    console.error(err);
+    return;
   }
+
+  const raw =
+    fs.readFileSync(
+      TIMELINE_PATH,
+      "utf-8"
+    );
+
+  let messages =
+    JSON.parse(raw);
+
+  const lastUserTime =
+    getLastUserTime(
+      messages
+    );
+
+  if (!lastUserTime) {
+
+    console.log(
+      "未找到用户时间"
+    );
+
+    return;
+  }
+
+  const now =
+    new Date();
+
+  const diffMinutes =
+    Math.floor(
+      (
+        now -
+        lastUserTime
+      ) / 1000 / 60
+    );
+
+  if (
+    !shouldWake(
+      lastUserTime
+    )
+  ) {
+
+    console.log(
+      "\n暂不需要唤醒\n"
+    );
+
+    return;
+  }
+
+  const wakePrompt =
+    buildWakePrompt(
+      getChinaTimeString(),
+      diffMinutes
+    );
+
+  const wakeMessages = [
+    ...messages,
+    {
+      role: "system",
+      content:
+        wakePrompt
+    }
+  ];
+
+  const response =
+    await fetch(
+      process.env
+        .TARGET_API_URL,
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+
+          Authorization:
+            `Bearer ${process.env.TARGET_API_KEY}`
+        },
+
+        body: JSON.stringify({
+          model:
+            process.env.MODEL_NAME,
+
+          messages:
+            wakeMessages,
+
+          stream: false
+        })
+      }
+    );
+
+  const data =
+    await response.json();
+
+  console.log(
+    "\nWake Result:\n"
+  );
+
+  console.log(
+    JSON.stringify(
+      data,
+      null,
+      2
+    )
+  );
+
+  const aiText =
+    data.choices?.[0]
+      ?.message
+      ?.content || "";
+
+  console.log(
+    "\nAI内容：\n"
+  );
+
+  console.log(aiText);
+
+  const barkMatch =
+    aiText.match(
+      /\[BARK\]([\s\S]*?)\[\/BARK\]/
+    );
+
+  if (!barkMatch) {
+
+    console.log(
+      "\nAI 选择不发送 Bark\n"
+    );
+
+    return;
+  }
+
+  const barkLines =
+    barkMatch[1]
+      .trim()
+      .split("\n");
+
+  const title =
+    barkLines[0]
+      ?.trim() ||
+    "小彻";
+
+  const body =
+    barkLines
+      .slice(1)
+      .join("\n")
+      .trim();
+
+  if (!body) {
+
+    console.log(
+      "\nBark 正文为空\n"
+    );
+
+    return;
+  }
+
+  const barkPayload = {
+    title,
+    body,
+
+    device_key:
+      process.env.BARK_KEY,
+
+    icon:
+      process.env
+        .CUSTOM_ICON_URL
+  };
+
+  const barkResponse =
+    await fetch(
+      "https://api.day.app/push",
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json"
+        },
+
+        body: JSON.stringify(
+          barkPayload
+        )
+      }
+    );
+
+  const barkResult =
+    await barkResponse.json();
+
+  console.log(
+    "\nBark Result:\n"
+  );
+
+  console.log(
+    barkResult
+  );
+
+  messages.push({
+    role: "assistant",
+
+    content:
+      `（${getChinaTimeString()} 刚刚给宝宝发了 Bark：${title}｜${body}）`
+  });
+
+  fs.writeFileSync(
+    TIMELINE_PATH,
+    JSON.stringify(
+      messages,
+      null,
+      2
+    )
+  );
+
+  console.log(
+    "\n已注入 assistant message\n"
+  );
 }
-
-
-// ====================================
-// 定时器
-// ====================================
 
 cron.schedule(
   "*/5 * * * *",
-  async () => {
-
-    console.log(
-      "\n检查 wake 条件..."
-    );
-
-    await wakeAI();
-  }
+  runWakeUp
 );
-
-
-// ====================================
-// 启动
-// ====================================
 
 console.log(
   "\n=================================="

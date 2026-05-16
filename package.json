@@ -4,7 +4,8 @@
   "description": "",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "wake": "node wake_up.js"
   },
   "keywords": [],
   "author": "",
@@ -12,6 +13,7 @@
   "type": "commonjs",
   "dependencies": {
     "dotenv": "^17.4.2",
+    "fastify": "^5.3.3",
     "fs-extra": "^11.3.5",
     "node-cron": "^4.2.1"
   }

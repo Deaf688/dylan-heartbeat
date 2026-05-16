@@ -239,10 +239,25 @@ app.post(
       body.messages =
         mergedMessages;
 
-      // 保存 timeline
-      saveTimeline(
-        mergedMessages
-      );
+// 读取旧 timeline
+const oldTimeline =
+  loadTimeline();
+
+// merge 历史 + 当前
+const finalTimeline =
+  mergeMessages(
+    oldTimeline,
+    mergedMessages
+  );
+
+// 只保留最后 50 条
+const trimmedTimeline =
+  finalTimeline.slice(-50);
+
+// 保存
+saveTimeline(
+  trimmedTimeline
+);
 
       console.log(
         "\n===== 当前 Timeline =====\n"
