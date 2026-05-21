@@ -78,13 +78,14 @@ Bark 推送 → 你的手机
 npm install
 ```
 
-#### 配置环境变量（复制模板并修改）
+#### 配置环境变量
+复制模板文件生成专属配置文件，再自定义修改参数：
+```bash
 cp .env.example .env
-nano .env   # 或使用文本编辑器，填入你的 Key 和地址
+nano .env   # 也可直接用文本编辑器打开 .env 文件修改
 ```
 
-`.env` 文件内容示例：
-
+`.env` 完整配置示例：
 ```env
 TARGET_API_URL=https://你的API地址/v1/chat/completions
 TARGET_API_KEY=sk-你的APIKey
